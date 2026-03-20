@@ -3,6 +3,22 @@ import { useState, useEffect, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import { Search, MapPin, Navigation, AlertCircle, Loader, X, ArrowDown, LocateFixed } from 'lucide-react'
 
+const LOCATION_PERMISSION_KEY = 'forge_location_permission'
+const MAP_STATE_KEY = 'forge_map_state'
+
+const saveMapState = (patch) => {
+  try {
+    const existing = JSON.parse(localStorage.getItem(MAP_STATE_KEY) || '{}')
+    localStorage.setItem(MAP_STATE_KEY, JSON.stringify({ ...existing, ...patch }))
+  } catch {}
+}
+
+const loadMapState = () => {
+  try {
+    return JSON.parse(localStorage.getItem(MAP_STATE_KEY) || '{}')
+  } catch { return {} }
+}
+
 export default function MapPage() {
   const router = useRouter()
   const mapRef = useRef(null)
@@ -13,36 +29,68 @@ export default function MapPage() {
   const originTimeoutRef = useRef(null)
   const destTimeoutRef = useRef(null)
 
-  const [showModal, setShowModal] = useState(true)
-  const [userCountry, setUserCountry] = useState('')
+  // Initialize as true so that on page restore, the populated query values
+  // do NOT trigger a suggestion fetch — suggestions only fire after the user
+  // physically types a new character
+  const originJustSelectedRef = useRef(true)
+  const destJustSelectedRef = useRef(true)
 
-  const [originQuery, setOriginQuery] = useState('')
+  const hasAnsweredBefore = typeof window !== 'undefined'
+    ? localStorage.getItem(LOCATION_PERMISSION_KEY) !== null
+    : false
+
+  const saved = typeof window !== 'undefined' ? loadMapState() : {}
+
+  const [showModal, setShowModal] = useState(!hasAnsweredBefore)
+  const [userCountry, setUserCountry] = useState(saved.userCountry || '')
+  const [userLocation, setUserLocation] = useState(saved.userLocation || null)
+
+  const [originQuery, setOriginQuery] = useState(saved.originQuery || '')
   const [originSuggestions, setOriginSuggestions] = useState([])
   const [originSuggestLoading, setOriginSuggestLoading] = useState(false)
   const [showOriginSuggestions, setShowOriginSuggestions] = useState(false)
-  const [selectedOrigin, setSelectedOrigin] = useState(null)
+  const [selectedOrigin, setSelectedOrigin] = useState(saved.selectedOrigin || null)
   const [originLoading, setOriginLoading] = useState(false)
 
-  const [destQuery, setDestQuery] = useState('')
+  const [destQuery, setDestQuery] = useState(saved.destQuery || '')
   const [destSuggestions, setDestSuggestions] = useState([])
   const [destSuggestLoading, setDestSuggestLoading] = useState(false)
   const [showDestSuggestions, setShowDestSuggestions] = useState(false)
-  const [selectedDest, setSelectedDest] = useState(null)
+  const [selectedDest, setSelectedDest] = useState(saved.selectedDest || null)
   const [destLoading, setDestLoading] = useState(false)
 
   const [locating, setLocating] = useState(false)
   const [error, setError] = useState(null)
-  const [userLocation, setUserLocation] = useState(null)
-  const [routeInfo, setRouteInfo] = useState(null)
+  const [routeInfo, setRouteInfo] = useState(saved.routeInfo || null)
   const [mapReady, setMapReady] = useState(false)
 
   const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
 
+  // Merge-save each field individually so no field ever wipes another
+  useEffect(() => { saveMapState({ userCountry }) }, [userCountry])
+  useEffect(() => { saveMapState({ userLocation }) }, [userLocation])
+  useEffect(() => { saveMapState({ originQuery }) }, [originQuery])
+  useEffect(() => { saveMapState({ selectedOrigin }) }, [selectedOrigin])
+  useEffect(() => { saveMapState({ destQuery }) }, [destQuery])
+  useEffect(() => { saveMapState({ selectedDest }) }, [selectedDest])
+  useEffect(() => { saveMapState({ routeInfo }) }, [routeInfo])
+
   useEffect(() => {
     if (!user || !token) { router.push('/login'); return }
     initMap()
   }, [])
+
+  // After map is ready, restore markers and route from saved state
+  useEffect(() => {
+    if (!mapReady) return
+    const restore = async () => {
+      if (saved.selectedOrigin) await placeOriginOnMap(saved.selectedOrigin, true)
+      if (saved.selectedDest) await placeDestOnMap(saved.selectedDest, true)
+      if (saved.selectedOrigin && saved.selectedDest) await drawRoute(saved.selectedOrigin, saved.selectedDest)
+    }
+    restore()
+  }, [mapReady])
 
   const normalize = (result) => {
     const lat = parseFloat(result.lat)
@@ -144,8 +192,9 @@ export default function MapPage() {
     return normalized
   }
 
-  // Origin live suggestions
+  // Origin live suggestions — blocked on mount restore and after selection, only runs on fresh typing
   useEffect(() => {
+    if (originJustSelectedRef.current) { originJustSelectedRef.current = false; return }
     if (originQuery.trim().length < 2) { setOriginSuggestions([]); setShowOriginSuggestions(false); return }
     if (originTimeoutRef.current) clearTimeout(originTimeoutRef.current)
     originTimeoutRef.current = setTimeout(async () => {
@@ -160,8 +209,9 @@ export default function MapPage() {
     return () => clearTimeout(originTimeoutRef.current)
   }, [originQuery])
 
-  // Destination live suggestions
+  // Destination live suggestions — blocked on mount restore and after selection, only runs on fresh typing
   useEffect(() => {
+    if (destJustSelectedRef.current) { destJustSelectedRef.current = false; return }
     if (destQuery.trim().length < 2) { setDestSuggestions([]); setShowDestSuggestions(false); return }
     if (destTimeoutRef.current) clearTimeout(destTimeoutRef.current)
     destTimeoutRef.current = setTimeout(async () => {
@@ -197,6 +247,7 @@ export default function MapPage() {
   }
 
   const handleAllowLocation = () => {
+    localStorage.setItem(LOCATION_PERMISSION_KEY, 'granted')
     setShowModal(false)
     setLocating(true)
     navigator.geolocation.getCurrentPosition(
@@ -219,9 +270,12 @@ export default function MapPage() {
     )
   }
 
-  const handleDenyLocation = () => { setShowModal(false) }
+  const handleDenyLocation = () => {
+    localStorage.setItem(LOCATION_PERMISSION_KEY, 'denied')
+    setShowModal(false)
+  }
 
-  const placeOriginOnMap = async (result) => {
+  const placeOriginOnMap = async (result, silent = false) => {
     const { lat, lng, name } = result
     if (isNaN(lat) || isNaN(lng)) { setError('Could not find coordinates. Try again.'); return }
     const L = (await import('leaflet')).default
@@ -236,11 +290,13 @@ export default function MapPage() {
     userMarkerRef.current = L.marker([lat, lng], { icon })
       .addTo(map).bindPopup(`<b style="color:#f97316">📍 ${name}</b>`).openPopup()
     map.setView([lat, lng], 14)
-    setSelectedOrigin(result)
-    if (selectedDest) drawRoute(result, selectedDest)
+    if (!silent) {
+      setSelectedOrigin(result)
+      if (selectedDest) drawRoute(result, selectedDest)
+    }
   }
 
-  const placeDestOnMap = async (result) => {
+  const placeDestOnMap = async (result, silent = false) => {
     const { lat, lng, name } = result
     if (isNaN(lat) || isNaN(lng)) { setError('Could not find coordinates. Try again.'); return }
     const L = (await import('leaflet')).default
@@ -255,9 +311,11 @@ export default function MapPage() {
     destMarkerRef.current = L.marker([lat, lng], { icon: destIcon })
       .addTo(map).bindPopup(`<b style="color:#3b82f6">${name}</b>`).openPopup()
     map.setView([lat, lng], 14)
-    setSelectedDest(result)
-    const origin = selectedOrigin || (userLocation ? { lat: userLocation.lat, lng: userLocation.lng, name: userCountry || 'Your Location' } : null)
-    if (origin) drawRoute(origin, result)
+    if (!silent) {
+      setSelectedDest(result)
+      const origin = selectedOrigin || (userLocation ? { lat: userLocation.lat, lng: userLocation.lng, name: userCountry || 'Your Location' } : null)
+      if (origin) drawRoute(origin, result)
+    }
   }
 
   const drawRoute = async (origin, dest) => {
@@ -317,6 +375,9 @@ export default function MapPage() {
     if (userMarkerRef.current) userMarkerRef.current.remove()
     if (destMarkerRef.current) destMarkerRef.current.remove()
     if (routeLayerRef.current) routeLayerRef.current.remove()
+    // Reset both guards so the cleared empty inputs don't accidentally unblock suggestions
+    originJustSelectedRef.current = true
+    destJustSelectedRef.current = true
     setSelectedOrigin(null); setOriginQuery(''); setOriginSuggestions([]); setShowOriginSuggestions(false)
     setSelectedDest(null); setDestQuery(''); setDestSuggestions([]); setShowDestSuggestions(false)
     setRouteInfo(null); setError(null)
@@ -412,8 +473,12 @@ export default function MapPage() {
               <input
                 type="text"
                 value={originQuery}
-                onChange={(e) => { setOriginQuery(e.target.value); setSelectedOrigin(null) }}
-                onFocus={() => originSuggestions.length > 0 && setShowOriginSuggestions(true)}
+                onChange={(e) => {
+                  originJustSelectedRef.current = false
+                  setOriginQuery(e.target.value)
+                  setSelectedOrigin(null)
+                }}
+                onFocus={() => {}}
                 placeholder="Starting point..."
                 className="w-full bg-[#080808] border border-white/10 rounded-xl pl-8 pr-8 py-2.5 focus:outline-none focus:border-orange-500/50 text-sm transition"
                 autoComplete="off"
@@ -421,7 +486,10 @@ export default function MapPage() {
               {originSuggestLoading
                 ? <Loader size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 animate-spin" />
                 : originQuery
-                  ? <button type="button" onClick={() => { setOriginQuery(''); setSelectedOrigin(null); setOriginSuggestions([]); setShowOriginSuggestions(false) }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition"><X size={12} /></button>
+                  ? <button type="button" onClick={() => {
+                      originJustSelectedRef.current = true
+                      setOriginQuery(''); setSelectedOrigin(null); setOriginSuggestions([]); setShowOriginSuggestions(false)
+                    }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition"><X size={12} /></button>
                   : null
               }
             </div>
@@ -439,7 +507,14 @@ export default function MapPage() {
               {originSuggestions.map((result, i) => (
                 <div
                   key={i}
-                  onMouseDown={(e) => { e.preventDefault(); setOriginQuery(result.name); setSelectedOrigin(result); setShowOriginSuggestions(false); setOriginSuggestions([]) }}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    originJustSelectedRef.current = true
+                    setOriginQuery(result.name)
+                    setSelectedOrigin(result)
+                    setShowOriginSuggestions(false)
+                    setOriginSuggestions([])
+                  }}
                   className="flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/5 transition border-b border-white/5 last:border-0"
                 >
                   <MapPin size={12} className="text-orange-400 flex-shrink-0 mt-0.5" />
@@ -469,8 +544,12 @@ export default function MapPage() {
               <input
                 type="text"
                 value={destQuery}
-                onChange={(e) => { setDestQuery(e.target.value); setSelectedDest(null) }}
-                onFocus={() => destSuggestions.length > 0 && setShowDestSuggestions(true)}
+                onChange={(e) => {
+                  destJustSelectedRef.current = false
+                  setDestQuery(e.target.value)
+                  setSelectedDest(null)
+                }}
+                onFocus={() => {}}
                 placeholder="Destination..."
                 className="w-full bg-[#080808] border border-white/10 rounded-xl pl-8 pr-8 py-2.5 focus:outline-none focus:border-blue-500/50 text-sm transition"
                 autoComplete="off"
@@ -478,7 +557,10 @@ export default function MapPage() {
               {destSuggestLoading
                 ? <Loader size={12} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 animate-spin" />
                 : destQuery
-                  ? <button type="button" onClick={() => { setDestQuery(''); setSelectedDest(null); setDestSuggestions([]); setShowDestSuggestions(false) }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition"><X size={12} /></button>
+                  ? <button type="button" onClick={() => {
+                      destJustSelectedRef.current = true
+                      setDestQuery(''); setSelectedDest(null); setDestSuggestions([]); setShowDestSuggestions(false)
+                    }} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-white transition"><X size={12} /></button>
                   : null
               }
             </div>
@@ -496,7 +578,14 @@ export default function MapPage() {
               {destSuggestions.map((result, i) => (
                 <div
                   key={i}
-                  onMouseDown={(e) => { e.preventDefault(); setDestQuery(result.name); setSelectedDest(result); setShowDestSuggestions(false); setDestSuggestions([]) }}
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    destJustSelectedRef.current = true
+                    setDestQuery(result.name)
+                    setSelectedDest(result)
+                    setShowDestSuggestions(false)
+                    setDestSuggestions([])
+                  }}
                   className="flex items-start gap-3 px-4 py-2.5 cursor-pointer hover:bg-white/5 transition border-b border-white/5 last:border-0"
                 >
                   <MapPin size={12} className="text-blue-400 flex-shrink-0 mt-0.5" />
