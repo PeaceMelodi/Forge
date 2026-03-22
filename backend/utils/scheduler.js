@@ -7,6 +7,7 @@ const startScheduler = () => {
   // Runs every minute
   cron.schedule('* * * * *', async () => {
     try {
+      // Use UTC now — Render server runs UTC so this is always accurate
       const now = new Date()
 
       const dueReminders = await Note.find({
@@ -21,6 +22,7 @@ const startScheduler = () => {
           await sendReminderEmail(user.email, note.title, note.content)
           note.reminderSent = true
           await note.save()
+          console.log(`Reminder sent for note: ${note.title} to ${user.email}`)
         }
       }
 
