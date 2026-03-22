@@ -2,7 +2,160 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_URL } from '../lib/api'
-import { Plus, Search, StickyNote, Trash2, Bell, FileText, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, Search, StickyNote, Trash2, Bell, FileText, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Calendar, Clock } from 'lucide-react'
+
+// ── DateTime Picker Modal (desktop only) ─────────────────────────────────────
+function DateTimeModal({ value, onChange, onClose }) {
+  const now = new Date()
+
+  const parseValue = () => {
+    if (value) {
+      const d = new Date(value)
+      return {
+        year: d.getFullYear(),
+        month: d.getMonth(),
+        day: d.getDate(),
+        hour: d.getHours(),
+        minute: d.getMinutes(),
+      }
+    }
+    return {
+      year: now.getFullYear(),
+      month: now.getMonth(),
+      day: now.getDate(),
+      hour: now.getHours(),
+      minute: now.getMinutes(),
+    }
+  }
+
+  const [sel, setSel] = useState(parseValue)
+  const [view, setView] = useState('calendar')
+
+  const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
+  const DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat']
+
+  const daysInMonth = new Date(sel.year, sel.month + 1, 0).getDate()
+  const firstDay = new Date(sel.year, sel.month, 1).getDay()
+
+  // Build a datetime-local string "YYYY-MM-DDTHH:MM" from local parts
+  const toLocalString = (y, mo, d, h, mi) => {
+    const pad = n => String(n).padStart(2, '0')
+    return `${y}-${pad(mo + 1)}-${pad(d)}T${pad(h)}:${pad(mi)}`
+  }
+
+  const handleConfirm = () => {
+    // Build local date string and pass it up — parent will convert to ISO when submitting
+    onChange(toLocalString(sel.year, sel.month, sel.day, sel.hour, sel.minute))
+    onClose()
+  }
+
+  const prevMonth = () => {
+    setSel(s => s.month === 0 ? { ...s, month: 11, year: s.year - 1 } : { ...s, month: s.month - 1 })
+  }
+
+  const nextMonth = () => {
+    setSel(s => s.month === 11 ? { ...s, month: 0, year: s.year + 1 } : { ...s, month: s.month + 1 })
+  }
+
+  const isToday = (d) => d === now.getDate() && sel.month === now.getMonth() && sel.year === now.getFullYear()
+  const isSelected = (d) => d === sel.day
+
+  return (
+    <div className="fixed inset-0 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 999 }}>
+      <div className="bg-[#111] border border-white/10 rounded-3xl p-6 w-full max-w-sm shadow-2xl">
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="font-bold text-base">Set Reminder</h2>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition"><X size={18} /></button>
+        </div>
+
+        <div className="flex gap-2 mb-5">
+          <button
+            onClick={() => setView('calendar')}
+            className={"flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition " + (view === 'calendar' ? 'bg-orange-500 text-white' : 'bg-white/5 text-gray-400 hover:text-white')}
+          >
+            <Calendar size={14} /> Date
+          </button>
+          <button
+            onClick={() => setView('time')}
+            className={"flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-medium transition " + (view === 'time' ? 'bg-orange-500 text-white' : 'bg-white/5 text-gray-400 hover:text-white')}
+          >
+            <Clock size={14} /> Time
+          </button>
+        </div>
+
+        {view === 'calendar' && (
+          <>
+            <div className="flex items-center justify-between mb-4">
+              <button onClick={prevMonth} className="w-8 h-8 bg-white/5 hover:bg-white/10 rounded-lg flex items-center justify-center text-gray-400 hover:text-white transition text-lg">‹</button>
+              <p className="font-bold text-sm">{MONTHS[sel.month]} {sel.year}</p>
+              <button onClick={nextMonth} className="w-8 h-8 bg-white/5 hover:bg-white/10 rounded-lg flex items-center justify-center text-gray-400 hover:text-white transition text-lg">›</button>
+            </div>
+            <div className="grid grid-cols-7 mb-2">
+              {DAYS.map(d => <div key={d} className="text-center text-xs text-gray-600 font-medium py-1">{d}</div>)}
+            </div>
+            <div className="grid grid-cols-7 gap-y-1 mb-5">
+              {Array.from({ length: firstDay }).map((_, i) => <div key={`e${i}`} />)}
+              {Array.from({ length: daysInMonth }).map((_, i) => {
+                const d = i + 1
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setSel(s => ({ ...s, day: d }))}
+                    className={"w-full aspect-square rounded-lg text-xs font-medium transition flex items-center justify-center " + (
+                      isSelected(d) ? 'bg-orange-500 text-white'
+                        : isToday(d) ? 'border border-orange-500/50 text-orange-400'
+                        : 'hover:bg-white/10 text-gray-300'
+                    )}
+                  >
+                    {d}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {view === 'time' && (
+          <div className="flex items-center justify-center gap-6 py-6 mb-5">
+            <div className="flex flex-col items-center gap-2">
+              <button onClick={() => setSel(s => ({ ...s, hour: (s.hour + 1) % 24 }))} className="w-9 h-9 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition text-lg">▲</button>
+              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center">
+                <span className="text-2xl font-bold">{String(sel.hour).padStart(2,'0')}</span>
+              </div>
+              <button onClick={() => setSel(s => ({ ...s, hour: (s.hour + 23) % 24 }))} className="w-9 h-9 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition text-lg">▼</button>
+              <p className="text-xs text-gray-600">Hour</p>
+            </div>
+            <span className="text-2xl font-bold text-gray-500 mt-1">:</span>
+            <div className="flex flex-col items-center gap-2">
+              <button onClick={() => setSel(s => ({ ...s, minute: (s.minute + 1) % 60 }))} className="w-9 h-9 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition text-lg">▲</button>
+              <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center">
+                <span className="text-2xl font-bold">{String(sel.minute).padStart(2,'0')}</span>
+              </div>
+              <button onClick={() => setSel(s => ({ ...s, minute: (s.minute + 59) % 60 }))} className="w-9 h-9 bg-white/5 hover:bg-white/10 rounded-xl text-gray-400 hover:text-white transition text-lg">▼</button>
+              <p className="text-xs text-gray-600">Minute</p>
+            </div>
+          </div>
+        )}
+
+        <div className="bg-white/5 rounded-xl px-4 py-2.5 mb-4 flex items-center gap-2">
+          <Calendar size={13} className="text-orange-400 flex-shrink-0" />
+          <p className="text-sm font-medium">{MONTHS[sel.month]} {sel.day}, {sel.year}</p>
+          <span className="text-gray-600 mx-1">·</span>
+          <Clock size={13} className="text-orange-400 flex-shrink-0" />
+          <p className="text-sm font-medium">{String(sel.hour).padStart(2,'0')}:{String(sel.minute).padStart(2,'0')}</p>
+        </div>
+
+        <button
+          onClick={handleConfirm}
+          className="w-full bg-orange-500 hover:bg-orange-400 text-white font-bold py-3 rounded-2xl transition text-sm"
+        >
+          Confirm Date & Time
+        </button>
+      </div>
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
 
 export default function Notes() {
   const router = useRouter()
@@ -15,6 +168,7 @@ export default function Notes() {
   const [error, setError] = useState(null)
   const [message, setMessage] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
+  const [showDateModal, setShowDateModal] = useState(false)
   const [formData, setFormData] = useState({
     title: '', content: '', type: 'quick', reminderDate: ''
   })
@@ -57,10 +211,20 @@ export default function Notes() {
     setPosting(true)
     setError(null)
     try {
+      let reminderDate = ''
+      if (formData.reminderDate) {
+        // THE FIX: datetime-local gives "2026-03-22T14:30"
+        // We parse it as LOCAL time and convert to UTC ISO for the backend
+        // This means if you pick 2:30 PM in Nigeria (UTC+1),
+        // it sends 1:30 PM UTC to the backend — exactly right
+        const local = new Date(formData.reminderDate)
+        reminderDate = local.toISOString()
+      }
+
       const response = await fetch(`${API_URL}/api/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({ ...formData, reminderDate })
       })
       const data = await response.json()
       if (!response.ok) { setError(data.message); return }
@@ -99,8 +263,27 @@ export default function Notes() {
 
   const isOverdue = (date) => new Date(date) < new Date()
 
+  const formatReminderDisplay = (val) => {
+    if (!val) return null
+    const d = new Date(val)
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+    const hour = d.getHours()
+    const minute = d.getMinutes()
+    const ampm = hour >= 12 ? 'PM' : 'AM'
+    const h = hour % 12 || 12
+    return `${months[d.getMonth()]} ${d.getDate()}, ${d.getFullYear()} · ${h}:${String(minute).padStart(2,'0')} ${ampm}`
+  }
+
   return (
     <div>
+      {showDateModal && (
+        <DateTimeModal
+          value={formData.reminderDate}
+          onChange={(val) => setFormData({ ...formData, reminderDate: val })}
+          onClose={() => setShowDateModal(false)}
+        />
+      )}
+
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -206,18 +389,35 @@ export default function Notes() {
             {formData.type === 'reminder' && (
               <div>
                 <label className="text-gray-500 text-xs uppercase tracking-widest mb-2 block">Date and Time</label>
+
+                {/* MOBILE: native datetime input */}
                 <input
                   type="datetime-local"
                   value={formData.reminderDate}
                   onChange={(e) => setFormData({ ...formData, reminderDate: e.target.value })}
                   required
-                  className="w-full bg-[#080808] border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-orange-500/50 text-sm transition"
+                  className="sm:hidden w-full bg-[#080808] border border-white/10 rounded-xl px-4 py-3 focus:outline-none focus:border-orange-500/50 text-sm transition"
                 />
+
+                {/* DESKTOP: beautiful custom picker */}
+                <button
+                  type="button"
+                  onClick={() => setShowDateModal(true)}
+                  className="hidden sm:flex w-full items-center gap-3 bg-[#080808] border border-white/10 hover:border-orange-500/50 rounded-xl px-4 py-3 text-sm transition text-left"
+                >
+                  <Calendar size={15} className="text-orange-400 flex-shrink-0" />
+                  {formData.reminderDate
+                    ? <span className="text-white font-medium">{formatReminderDisplay(formData.reminderDate)}</span>
+                    : <span className="text-gray-500">Click to choose date and time...</span>
+                  }
+                </button>
+
+                <input type="hidden" value={formData.reminderDate} required={formData.type === 'reminder'} />
               </div>
             )}
             <button
               type="submit"
-              disabled={posting}
+              disabled={posting || (formData.type === 'reminder' && !formData.reminderDate)}
               className="bg-orange-500 hover:bg-orange-400 text-white font-bold py-3 rounded-xl transition disabled:opacity-50 text-sm"
             >
               {posting ? 'Saving...' : 'Save Note'}
