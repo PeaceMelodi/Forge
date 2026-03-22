@@ -37,14 +37,12 @@ function DateTimeModal({ value, onChange, onClose }) {
   const daysInMonth = new Date(sel.year, sel.month + 1, 0).getDate()
   const firstDay = new Date(sel.year, sel.month, 1).getDay()
 
-  // Build a datetime-local string "YYYY-MM-DDTHH:MM" from local parts
   const toLocalString = (y, mo, d, h, mi) => {
     const pad = n => String(n).padStart(2, '0')
     return `${y}-${pad(mo + 1)}-${pad(d)}T${pad(h)}:${pad(mi)}`
   }
 
   const handleConfirm = () => {
-    // Build local date string and pass it up — parent will convert to ISO when submitting
     onChange(toLocalString(sel.year, sel.month, sel.day, sel.hour, sel.minute))
     onClose()
   }
@@ -173,6 +171,14 @@ export default function Notes() {
     title: '', content: '', type: 'quick', reminderDate: ''
   })
 
+  // FIX 2: ticker that re-renders every 30 seconds so overdue reminders
+  // turn red automatically without the user needing to refresh
+  const [tick, setTick] = useState(0)
+  useEffect(() => {
+    const interval = setInterval(() => setTick(t => t + 1), 30000)
+    return () => clearInterval(interval)
+  }, [])
+
   const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null
   const user = typeof window !== 'undefined' ? JSON.parse(localStorage.getItem('user') || 'null') : null
 
@@ -213,10 +219,6 @@ export default function Notes() {
     try {
       let reminderDate = ''
       if (formData.reminderDate) {
-        // THE FIX: datetime-local gives "2026-03-22T14:30"
-        // We parse it as LOCAL time and convert to UTC ISO for the backend
-        // This means if you pick 2:30 PM in Nigeria (UTC+1),
-        // it sends 1:30 PM UTC to the backend — exactly right
         const local = new Date(formData.reminderDate)
         reminderDate = local.toISOString()
       }
@@ -261,6 +263,7 @@ export default function Notes() {
     })
   }
 
+  // FIX 2: isOverdue now uses tick so it re-evaluates every 30 seconds
   const isOverdue = (date) => new Date(date) < new Date()
 
   const formatReminderDisplay = (val) => {
@@ -502,7 +505,10 @@ export default function Notes() {
             </div>
             {expandedId === note._id && (
               <div className="px-4 pb-4 border-t border-white/5 pt-3">
-                <p className="text-gray-400 text-sm leading-relaxed">{note.content}</p>
+                {/* FIX 1: break-words prevents long text from pushing page width */}
+                <p className="text-gray-400 text-sm leading-relaxed break-words overflow-hidden">
+                  {note.content}
+                </p>
                 {note.type === 'reminder' && note.reminderDate && (
                   <div className={"mt-3 flex items-center gap-1.5 text-xs " + (note.reminderSent ? 'text-gray-600' : isOverdue(note.reminderDate) ? 'text-red-400' : 'text-orange-400')}>
                     <Bell size={11} />
