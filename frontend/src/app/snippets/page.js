@@ -111,7 +111,6 @@ function MobileCodeBlock({ code }) {
 
   return (
     <div style={{ background: '#0a0a0a', borderRadius: '8px', overflow: 'hidden', width: '100%', position: 'relative' }}>
-      {/* Copy button floated top right inside the code block */}
       <button
         onClick={handleCopy}
         style={{
@@ -165,6 +164,34 @@ function MobileCodeBlock({ code }) {
   )
 }
 
+// ── Delete Confirmation Modal ─────────────────────────────────────────────────
+function DeleteModal({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 999 }}>
+      <div className="bg-[#111] border border-white/10 rounded-3xl p-7 w-full max-w-xs shadow-2xl">
+        <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+          <Trash2 size={20} className="text-red-400" />
+        </div>
+        <h2 className="font-bold text-base text-center mb-2">Delete Snippet</h2>
+        <p className="text-gray-500 text-sm text-center mb-6 leading-relaxed">Are you sure you want to delete this snippet? This cannot be undone.</p>
+        <button
+          onClick={onConfirm}
+          className="w-full bg-red-500 hover:bg-red-400 text-white font-bold py-3 rounded-2xl transition text-sm mb-2"
+        >
+          Yes, Delete
+        </button>
+        <button
+          onClick={onCancel}
+          className="w-full bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3 rounded-2xl transition text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Snippets() {
   const router = useRouter()
   const [snippets, setSnippets] = useState([])
@@ -175,6 +202,7 @@ export default function Snippets() {
   const [posting, setPosting] = useState(false)
   const [expandedId, setExpandedId] = useState(null)
   const [copiedId, setCopiedId] = useState(null)
+  const [deleteId, setDeleteId] = useState(null)
   const [formData, setFormData] = useState({
     title: '', code: '', language: 'javascript', tags: ''
   })
@@ -237,17 +265,17 @@ export default function Snippets() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this snippet?')) return
+  const handleDeleteConfirm = async () => {
     try {
-      await fetch(`${API_URL}/api/snippets/${id}`, {
+      await fetch(`${API_URL}/api/snippets/${deleteId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      const updated = snippets.filter(s => s._id !== id)
+      const updated = snippets.filter(s => s._id !== deleteId)
       setSnippets(updated)
       localStorage.setItem('cached_snippets', JSON.stringify(updated))
     } catch (err) { console.log('Failed to delete') }
+    finally { setDeleteId(null) }
   }
 
   const handleCopyDesktop = (code, id) => {
@@ -274,6 +302,14 @@ export default function Snippets() {
 
   return (
     <div className="w-full">
+      {/* Delete Confirmation Modal */}
+      {deleteId && (
+        <DeleteModal
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
+
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -415,7 +451,7 @@ export default function Snippets() {
                   {copiedId === snippet._id ? <Check size={13} /> : <Copy size={13} />}
                 </button>
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(snippet._id) }}
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(snippet._id) }}
                   className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/20 transition"
                 >
                   <Trash2 size={13} />
@@ -463,7 +499,7 @@ export default function Snippets() {
               </div>
               <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(snippet._id) }}
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(snippet._id) }}
                   className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400"
                 >
                   <Trash2 size={12} />

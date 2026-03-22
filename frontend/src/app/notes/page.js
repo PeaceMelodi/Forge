@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { API_URL } from '../lib/api'
-import { Plus, Search, StickyNote, Trash2, Bell, FileText, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Calendar, Clock } from 'lucide-react'
+import { Plus, Search, StickyNote, Trash2, Bell, FileText, X, CheckCircle, AlertCircle, ChevronDown, ChevronUp, Calendar, Clock, Copy, Check } from 'lucide-react'
 
 // ── DateTime Picker Modal (desktop only) ─────────────────────────────────────
 function DateTimeModal({ value, onChange, onClose }) {
@@ -155,6 +155,34 @@ function DateTimeModal({ value, onChange, onClose }) {
 }
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Delete Confirmation Modal ─────────────────────────────────────────────────
+function DeleteModal({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 999 }}>
+      <div className="bg-[#111] border border-white/10 rounded-3xl p-7 w-full max-w-xs shadow-2xl">
+        <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+          <Trash2 size={20} className="text-red-400" />
+        </div>
+        <h2 className="font-bold text-base text-center mb-2">Delete Note</h2>
+        <p className="text-gray-500 text-sm text-center mb-6 leading-relaxed">Are you sure you want to delete this note? This cannot be undone.</p>
+        <button
+          onClick={onConfirm}
+          className="w-full bg-red-500 hover:bg-red-400 text-white font-bold py-3 rounded-2xl transition text-sm mb-2"
+        >
+          Yes, Delete
+        </button>
+        <button
+          onClick={onCancel}
+          className="w-full bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3 rounded-2xl transition text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Notes() {
   const router = useRouter()
   const [notes, setNotes] = useState([])
@@ -167,6 +195,8 @@ export default function Notes() {
   const [message, setMessage] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
   const [showDateModal, setShowDateModal] = useState(false)
+  const [copiedId, setCopiedId] = useState(null)
+  const [deleteId, setDeleteId] = useState(null)
   const [formData, setFormData] = useState({
     title: '', content: '', type: 'quick', reminderDate: ''
   })
@@ -243,17 +273,23 @@ export default function Notes() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this note?')) return
+  const handleDeleteConfirm = async () => {
     try {
-      await fetch(`${API_URL}/api/notes/${id}`, {
+      await fetch(`${API_URL}/api/notes/${deleteId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      const updated = notes.filter(n => n._id !== id)
+      const updated = notes.filter(n => n._id !== deleteId)
       setNotes(updated)
       localStorage.setItem('cached_notes', JSON.stringify(updated))
     } catch (err) { console.log('Failed to delete') }
+    finally { setDeleteId(null) }
+  }
+
+  const handleCopy = (text, id) => {
+    navigator.clipboard.writeText(text)
+    setCopiedId(id)
+    setTimeout(() => setCopiedId(null), 2000)
   }
 
   const formatDate = (date) => {
@@ -279,6 +315,14 @@ export default function Notes() {
 
   return (
     <div>
+      {/* Delete Confirmation Modal */}
+      {deleteId && (
+        <DeleteModal
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
+
       {showDateModal && (
         <DateTimeModal
           value={formData.reminderDate}
@@ -454,12 +498,20 @@ export default function Notes() {
                 }
                 <p className="font-medium text-sm truncate">{note.title}</p>
               </div>
-              <button
-                onClick={(e) => { e.stopPropagation(); handleDelete(note._id) }}
-                className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/20 transition flex-shrink-0 ml-2"
-              >
-                <Trash2 size={13} />
-              </button>
+              <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleCopy(note.content, note._id) }}
+                  className="w-7 h-7 bg-white/5 rounded-lg flex items-center justify-center text-gray-500 hover:text-white hover:bg-white/10 transition"
+                >
+                  {copiedId === note._id ? <Check size={13} /> : <Copy size={13} />}
+                </button>
+                <button
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(note._id) }}
+                  className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/20 transition flex-shrink-0 ml-2"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
             </div>
             <p className={"text-gray-500 text-xs leading-relaxed " + (expandedId === note._id ? '' : 'line-clamp-2')}>
               {note.content}
@@ -492,7 +544,7 @@ export default function Notes() {
               </div>
               <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(note._id) }}
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(note._id) }}
                   className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400"
                 >
                   <Trash2 size={12} />
@@ -505,10 +557,28 @@ export default function Notes() {
             </div>
             {expandedId === note._id && (
               <div className="px-4 pb-4 border-t border-white/5 pt-3">
-                {/* FIX 1: break-words prevents long text from pushing page width */}
-                <p className="text-gray-400 text-sm leading-relaxed break-words overflow-hidden">
-                  {note.content}
-                </p>
+                {/* Copy button floated top right exactly like MobileCodeBlock in snippets */}
+                <div style={{ position: 'relative' }}>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleCopy(note.content, note._id) }}
+                    style={{
+                      position: 'absolute', top: '6px', right: '6px', zIndex: 10,
+                      display: 'flex', alignItems: 'center', gap: '3px',
+                      background: copiedId === note._id ? '#6a995599' : '#ffffff18',
+                      border: 'none', borderRadius: '5px',
+                      color: copiedId === note._id ? '#b5cea8' : '#666',
+                      fontSize: '10px', padding: '3px 7px', cursor: 'pointer',
+                      fontFamily: 'sans-serif', backdropFilter: 'blur(4px)',
+                    }}
+                  >
+                    {copiedId === note._id ? <Check size={10} /> : <Copy size={10} />}
+                    {copiedId === note._id ? 'Copied!' : 'Copy'}
+                  </button>
+                  {/* FIX 1: break-words prevents long text from pushing page width */}
+                  <p className="text-gray-400 text-sm leading-relaxed break-words overflow-hidden" style={{ paddingTop: '28px' }}>
+                    {note.content}
+                  </p>
+                </div>
                 {note.type === 'reminder' && note.reminderDate && (
                   <div className={"mt-3 flex items-center gap-1.5 text-xs " + (note.reminderSent ? 'text-gray-600' : isOverdue(note.reminderDate) ? 'text-red-400' : 'text-orange-400')}>
                     <Bell size={11} />

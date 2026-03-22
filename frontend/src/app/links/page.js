@@ -17,6 +17,34 @@ const getCategoryColor = (category) => {
   return colors[category] || 'text-gray-400 bg-gray-400/10'
 }
 
+// ── Delete Confirmation Modal ─────────────────────────────────────────────────
+function DeleteModal({ onConfirm, onCancel }) {
+  return (
+    <div className="fixed inset-0 flex items-center justify-center px-4" style={{ background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(8px)', zIndex: 999 }}>
+      <div className="bg-[#111] border border-white/10 rounded-3xl p-7 w-full max-w-xs shadow-2xl">
+        <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/20 flex items-center justify-center mx-auto mb-4">
+          <Trash2 size={20} className="text-red-400" />
+        </div>
+        <h2 className="font-bold text-base text-center mb-2">Delete Link</h2>
+        <p className="text-gray-500 text-sm text-center mb-6 leading-relaxed">Are you sure you want to delete this link? This cannot be undone.</p>
+        <button
+          onClick={onConfirm}
+          className="w-full bg-red-500 hover:bg-red-400 text-white font-bold py-3 rounded-2xl transition text-sm mb-2"
+        >
+          Yes, Delete
+        </button>
+        <button
+          onClick={onCancel}
+          className="w-full bg-white/5 hover:bg-white/10 text-gray-400 font-bold py-3 rounded-2xl transition text-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Links() {
   const router = useRouter()
   const [links, setLinks] = useState([])
@@ -28,6 +56,7 @@ export default function Links() {
   const [error, setError] = useState(null)
   const [message, setMessage] = useState(null)
   const [expandedId, setExpandedId] = useState(null)
+  const [deleteId, setDeleteId] = useState(null)
   const [formData, setFormData] = useState({
     title: '', url: '', category: 'other', description: ''
   })
@@ -90,17 +119,17 @@ export default function Links() {
     }
   }
 
-  const handleDelete = async (id) => {
-    if (!confirm('Delete this link?')) return
+  const handleDeleteConfirm = async () => {
     try {
-      await fetch(`${API_URL}/api/links/${id}`, {
+      await fetch(`${API_URL}/api/links/${deleteId}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       })
-      const updated = links.filter(l => l._id !== id)
+      const updated = links.filter(l => l._id !== deleteId)
       setLinks(updated)
       localStorage.setItem('cached_links', JSON.stringify(updated))
     } catch (err) { console.log('Failed to delete') }
+    finally { setDeleteId(null) }
   }
 
   const getDomain = (url) => {
@@ -110,6 +139,14 @@ export default function Links() {
 
   return (
     <div>
+      {/* Delete Confirmation Modal */}
+      {deleteId && (
+        <DeleteModal
+          onConfirm={handleDeleteConfirm}
+          onCancel={() => setDeleteId(null)}
+        />
+      )}
+
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
@@ -247,7 +284,7 @@ export default function Links() {
                   {link.category}
                 </span>
                 <button
-                  onClick={() => handleDelete(link._id)}
+                  onClick={() => setDeleteId(link._id)}
                   className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400 hover:bg-red-500/20 transition"
                 >
                   <Trash2 size={13} />
@@ -286,7 +323,7 @@ export default function Links() {
               </div>
               <div className="flex items-center gap-1.5 ml-2 flex-shrink-0">
                 <button
-                  onClick={(e) => { e.stopPropagation(); handleDelete(link._id) }}
+                  onClick={(e) => { e.stopPropagation(); setDeleteId(link._id) }}
                   className="w-7 h-7 bg-red-500/10 rounded-lg flex items-center justify-center text-red-400"
                 >
                   <Trash2 size={12} />
