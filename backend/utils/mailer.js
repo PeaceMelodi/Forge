@@ -1,19 +1,12 @@
-const nodemailer = require('nodemailer')
+const { Resend } = require('resend')
 require('dotenv').config()
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  family: 4, // Force IPv4 — fixes ENETUNREACH on Render's free plan
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-})
+const resend = new Resend(process.env.RESEND_API_KEY)
 
 const sendReminderEmail = async (to, title, content) => {
   try {
-    await transporter.sendMail({
-      from: `"Forge" <${process.env.EMAIL_USER}>`,
+    await resend.emails.send({
+      from: 'Forge <onboarding@resend.dev>',
       to,
       subject: `🔔 Forge Reminder: ${title}`,
       html: `
