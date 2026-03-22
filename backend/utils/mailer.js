@@ -3,6 +3,7 @@ require('dotenv').config()
 
 const transporter = nodemailer.createTransport({
   service: 'gmail',
+  family: 4, // Force IPv4 — fixes ENETUNREACH on Render's free plan
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASS
