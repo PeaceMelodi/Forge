@@ -7,7 +7,6 @@ const startScheduler = () => {
   // Runs every minute
   cron.schedule('* * * * *', async () => {
     try {
-      // Use UTC now — Render server runs UTC so this is always accurate
       const now = new Date()
 
       const dueReminders = await Note.find({
@@ -17,12 +16,18 @@ const startScheduler = () => {
       })
 
       for (const note of dueReminders) {
-        const user = await User.findById(note.userId)
-        if (user) {
-          await sendReminderEmail(user.email, note.title, note.content)
-          note.reminderSent = true
-          await note.save()
-          console.log(`Reminder sent for note: ${note.title} to ${user.email}`)
+        try {
+          // Mark as sent FIRST before sending email
+          // This prevents duplicate sends if email takes long
+          await Note.findByIdAndUpdate(note._id, { reminderSent: true })
+
+          const user = await User.findById(note.userId)
+          if (user) {
+            await sendReminderEmail(user.email, note.title, note.content)
+            console.log(`Reminder sent for note: ${note.title} to ${user.email}`)
+          }
+        } catch (noteError) {
+          console.log(`Error processing note ${note._id}:`, noteError.message)
         }
       }
 
